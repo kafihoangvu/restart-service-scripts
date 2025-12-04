@@ -128,28 +128,37 @@ restart_pod() {
 }
 
 restart_pods_parallel() {
-    local pods="$1"
+    local pods_input="$1"
     local namespace=$2
     local timeout=${3:-30}
     
     # Tạo temp directory để lưu output và kết quả của mỗi pod
     local temp_dir=$(mktemp -d 2>/dev/null || echo "/tmp/restart_pods_$$")
     
-    # Thu thập và normalize pod names vào file, đảm bảo loại bỏ hoàn toàn newline
+    # Nếu input là file path, dùng trực tiếp; nếu là string, normalize vào file
     local pod_list_file="$temp_dir/pod_list"
     > "$pod_list_file"
     
-    printf "%s" "$pods" | while IFS= read -r pod || [ -n "$pod" ]; do
-        # Trim whitespace và loại bỏ hoàn toàn newline
-        pod=$(printf "%s" "$pod" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\n\r')
-        [ -z "$pod" ] && continue
-        printf "%s\n" "$pod" >> "$pod_list_file"
-    done
+    if [ -f "$pods_input" ]; then
+        # Input là file - normalize và copy vào pod_list_file
+        cat "$pods_input" | while IFS= read -r pod || [ -n "$pod" ]; do
+            pod=$(printf "%s" "$pod" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\n\r')
+            [ -z "$pod" ] && continue
+            printf "%s\n" "$pod" >> "$pod_list_file"
+        done
+    else
+        # Input là string - normalize vào file
+        printf "%s" "$pods_input" | while IFS= read -r pod || [ -n "$pod" ]; do
+            pod=$(printf "%s" "$pod" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\n\r')
+            [ -z "$pod" ] && continue
+            printf "%s\n" "$pod" >> "$pod_list_file"
+        done
+    fi
     
     # Khởi động restart cho mỗi pod trong background
-    while IFS= read -r pod < "$pod_list_file" || [ -n "$pod" ]; do
+    while IFS= read -r pod || [ -n "$pod" ]; do
         [ -z "$pod" ] && continue
-        pod=$(printf "%s" "$pod" | tr -d '\n\r')
+        pod=$(printf "%s" "$pod" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\n\r')
         [ -z "$pod" ] && continue
         
         (
@@ -164,9 +173,9 @@ restart_pods_parallel() {
     # Hiển thị output theo thứ tự pods và đếm kết quả
     local restarted=0
     local failed=0
-    while IFS= read -r pod < "$pod_list_file" || [ -n "$pod" ]; do
+    while IFS= read -r pod || [ -n "$pod" ]; do
         [ -z "$pod" ] && continue
-        pod=$(printf "%s" "$pod" | tr -d '\n\r')
+        pod=$(printf "%s" "$pod" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\n\r')
         [ -z "$pod" ] && continue
         
         # Hiển thị log của pod
@@ -231,17 +240,17 @@ restart_group_pods() {
     
     # Đếm và hiển thị pods
     local pod_count=$(wc -l < "$temp_normalized" | tr -d ' ')
-    local all_pods=$(cat "$temp_normalized")
     
     echo "  ✓ Found $pod_count pod(s):"
     cat "$temp_normalized" | while IFS= read -r pod; do
         [ -z "$pod" ] && continue
-        echo "    - $pod"
+        pod=$(printf "%s" "$pod" | tr -d '\n\r')
+        [ -n "$pod" ] && echo "    - $pod"
     done
     echo ""
     
-    # Restart pods song song
-    local result=$(restart_pods_parallel "$all_pods" "$namespace" "$wait_time")
+    # Restart pods song song - truyền file thay vì string để tránh newline issues
+    local result=$(restart_pods_parallel "$temp_normalized" "$namespace" "$wait_time")
     local restarted=$(echo "$result" | awk '{print $1}')
     local failed=$(echo "$result" | awk '{print $2}')
     
