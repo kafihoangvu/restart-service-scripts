@@ -158,19 +158,29 @@ restart_pods_parallel() {
     done < "$pod_list_file"
     
     # Hiển thị progress trong khi đợi
-    local total_pods=$(wc -l < "$pod_list_file" | tr -d ' ')
+    local total_pods=$(wc -l < "$pod_list_file" 2>/dev/null | tr -d ' ')
+    total_pods=${total_pods:-0}
     local completed=0
     local last_line_count=0
     
+    if [ "$total_pods" -eq 0 ]; then
+        wait
+        echo "0 0"
+        rm -rf "$temp_dir"
+        return
+    fi
+    
     echo "  Restarting $total_pods pod(s) in parallel..."
-    while [ $completed -lt $total_pods ]; do
+    while [ "$completed" -lt "$total_pods" ]; do
         sleep 2
         # Đếm số pods đã hoàn thành
         completed=$(grep -c "✓\|✗" "$progress_file" 2>/dev/null || echo "0")
+        completed=${completed:-0}
         
         # Hiển thị progress mới
         local current_lines=$(wc -l < "$progress_file" 2>/dev/null | tr -d ' ')
-        if [ $current_lines -gt $last_line_count ]; then
+        current_lines=${current_lines:-0}
+        if [ "$current_lines" -gt "$last_line_count" ]; then
             tail -n $((current_lines - last_line_count)) "$progress_file" 2>/dev/null | while IFS= read -r line; do
                 echo "  $line"
             done
@@ -178,7 +188,7 @@ restart_pods_parallel() {
         fi
         
         # Hiển thị progress nếu chưa xong
-        if [ $completed -lt $total_pods ]; then
+        if [ "$completed" -lt "$total_pods" ]; then
             local progress_percent=$((completed * 100 / total_pods))
             printf "  Progress: [%d/%d] %d%%\r" "$completed" "$total_pods" "$progress_percent"
         fi
